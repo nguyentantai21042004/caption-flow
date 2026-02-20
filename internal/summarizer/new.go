@@ -11,11 +11,13 @@ type implSummarizer struct {
 	model      string
 }
 
-// New creates a Summarizer that rotates through the supplied Gemini API keys.
-func New(apiKeys []string, log logger.Logger) Summarizer {
+func New(apiKeys []string, model string, log logger.Logger) Summarizer {
+	if model == "" {
+		model = "gemini-2.5-flash"
+	}
 	return &implSummarizer{
 		apiKeys: apiKeys,
 		logger:  log,
-		model:   "gemini-2.5-flash",
+		model:   model,
 	}
 }

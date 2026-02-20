@@ -12,7 +12,11 @@ import (
 // Uses relative path with working directory to avoid FFmpeg filter parsing issues
 func (p *implProcessor) burnSubtitle(ctx context.Context, videoPath, srtPath string) (string, error) {
 	filename := filepath.Base(videoPath)
-	outputPath := filepath.Join(p.cfg.Paths.Output, filename) // Keep original name
+	videosDir := filepath.Join(p.cfg.Paths.Output, "videos")
+	if err := os.MkdirAll(videosDir, 0755); err != nil {
+		return "", fmt.Errorf("create videos dir: %w", err)
+	}
+	outputPath := filepath.Join(videosDir, filename)
 
 	p.logger.Info(ctx, "Burning subtitle into video (M4 Pro optimized): %s", videoPath)
 
@@ -108,7 +112,7 @@ func (p *implProcessor) burnSubtitleSoftware(ctx context.Context, workDir, video
 		"-i", videoPath,
 		"-vf", fmt.Sprintf("subtitles=%s", subFilename), // No quotes!
 		"-c:v", "libx264",
-		"-preset", "medium",
+		"-preset", p.cfg.FFmpeg.Preset,
 		"-crf", "23",
 		"-c:a", "copy",
 		outputPath,

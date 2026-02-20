@@ -2,41 +2,28 @@ whisper:
   model_path: "models/ggml-large-v3-turbo.bin"
   binary_path: "./whisper.cpp/build/bin/whisper-cli"
   language: "en"
-  # Optimized prompt for better accuracy
   prompt: "technical terms, code, architecture, API, system design, software engineering, programming, development"
-  # M4 Pro optimization: use more threads for faster processing
   threads: 8
-  # Enable Metal acceleration (GPU)
   use_gpu: true
 
 ffmpeg:
-  # Optimized for M4 Pro: higher bitrate for better quality
   video_bitrate: "8M"
   audio_codec: "copy"
-  # Hardware encoder for Apple Silicon
   encoder: "h264_videotoolbox"
-  # M4 Pro can handle higher quality preset
   preset: "medium"
-  # Max bitrate for variable bitrate encoding
-  max_bitrate: "12M"
-  # Buffer size for rate control
-  bufsize: "16M"
 
 paths:
   input: "data/input"
   output: "data/output"
-  archived: "data/archived"  # Folder to store original videos after processing
-  temp: "data/temp"  # Temporary folder for processing
+  archived: "data/archived"
+  temp: "data/temp"
 
 logging:
   level: "info"
   format: "text"
 
-# Performance tuning for M4 Pro 24GB
 performance:
-  # Process videos concurrently (M4 Pro can handle it)
   max_concurrent: 2
-  # Larger buffer for file operations
-  buffer_size: 8388608  # 8MB
-  # Enable aggressive cleanup
-  cleanup_interval: 300  # seconds
+
+gemini:
+  model: "gemini-2.5-flash"

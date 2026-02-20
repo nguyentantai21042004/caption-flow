@@ -19,7 +19,7 @@ else
 	@./vid-pipeline -target-all
 endif
 
-# Summarize all SRT files in output via Gemini
+# Generate transcript + summary DOCX from SRT files via Gemini
 summarize: build
 	@./vid-pipeline -summarize
 
@@ -83,7 +83,7 @@ help:
 	@echo "  run                          Build and run (show usage)"
 	@echo "  run-pipeline                 Process ALL video files in input"
 	@echo "  run-pipeline FILE=\"name\"     Process specific file(s)"
-	@echo "  summarize                    Summarize SRTs via Gemini"
+	@echo "  summarize                    Generate transcript + summary DOCX"
 	@echo "  clean                        Remove build artifacts and temp files"
 	@echo "  test                         Run tests"
 	@echo "  install-deps                 Install Go dependencies"

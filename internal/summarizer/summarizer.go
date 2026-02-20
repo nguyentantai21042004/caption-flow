@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"google.golang.org/genai"
 )
@@ -27,31 +26,42 @@ Phụ đề video:
 %s
 ---`
 
-// SummarizeAll reads all SRT files from srtDir, calls Gemini for each,
-// and writes individual .md files into destDir.
-func (s *implSummarizer) SummarizeAll(ctx context.Context, srtDir, destDir string) error {
-	srtFiles, err := s.discoverSRTFiles(srtDir)
+// SummarizeAll discovers SRT files in outputDir (root), then for each:
+//   - writes transcript docx to outputDir/transcripts/
+//   - calls Gemini and writes summary docx to outputDir/summaries/
+//   - moves the processed SRT to outputDir/archived/
+func (s *implSummarizer) SummarizeAll(ctx context.Context, outputDir string) error {
+	srtFiles, err := s.discoverSRTFiles(outputDir)
 	if err != nil {
 		return fmt.Errorf("discover SRT files: %w", err)
 	}
 
 	if len(srtFiles) == 0 {
-		s.logger.Info(ctx, "No SRT files found in %s", srtDir)
+		s.logger.Info(ctx, "No SRT files found in %s", outputDir)
 		return nil
 	}
 
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return fmt.Errorf("create dest dir: %w", err)
+	transcriptsDir := filepath.Join(outputDir, "transcripts")
+	summariesDir := filepath.Join(outputDir, "summaries")
+	archivedDir := filepath.Join(outputDir, "archived")
+
+	for _, dir := range []string{transcriptsDir, summariesDir, archivedDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("create dir %s: %w", dir, err)
+		}
 	}
 
-	s.logger.Info(ctx, "Found %d SRT files to summarize", len(srtFiles))
+	s.logger.Info(ctx, "Found %d SRT files to process", len(srtFiles))
+	s.logger.Info(ctx, "  Transcripts -> %s", transcriptsDir)
+	s.logger.Info(ctx, "  Summaries   -> %s", summariesDir)
+	s.logger.Info(ctx, "  Archived    -> %s", archivedDir)
 
 	successCount := 0
 	failCount := 0
 
 	for i, srtPath := range srtFiles {
 		videoName := strings.TrimSuffix(filepath.Base(srtPath), ".srt")
-		s.logger.Info(ctx, "[%d/%d] Summarizing: %s", i+1, len(srtFiles), videoName)
+		s.logger.Info(ctx, "[%d/%d] Processing: %s", i+1, len(srtFiles), videoName)
 
 		content, err := os.ReadFile(srtPath)
 		if err != nil {
@@ -59,38 +69,44 @@ func (s *implSummarizer) SummarizeAll(ctx context.Context, srtDir, destDir strin
 			failCount++
 			continue
 		}
+		srtText := string(content)
 
-		summary, err := s.callGemini(ctx, string(content))
+		// 1) Transcript DOCX — raw SRT content formatted as docx
+		txDocx := filepath.Join(transcriptsDir, videoName+".docx")
+		if err := srtToDocx(videoName, srtText, txDocx); err != nil {
+			s.logger.Error(ctx, "Failed to write transcript %s: %v", txDocx, err)
+			failCount++
+			continue
+		}
+		s.logger.Info(ctx, "  ✓ Transcript: %s", txDocx)
+
+		// 2) Summary DOCX — LLM-generated summary
+		summary, err := s.callGemini(ctx, srtText)
 		if err != nil {
 			s.logger.Error(ctx, "Failed to summarize %s: %v", videoName, err)
 			failCount++
 			continue
 		}
 
-		md := fmt.Sprintf("# %s\n\n_%s_\n\n%s\n",
-			videoName,
-			time.Now().Format("2006-01-02 15:04"),
-			strings.TrimSpace(summary),
-		)
-
-		mdPath := filepath.Join(destDir, videoName+".md")
-		if err := os.WriteFile(mdPath, []byte(md), 0644); err != nil {
-			s.logger.Error(ctx, "Failed to write %s: %v", mdPath, err)
+		sumDocx := filepath.Join(summariesDir, videoName+".docx")
+		if err := markdownToDocx(videoName, strings.TrimSpace(summary), sumDocx); err != nil {
+			s.logger.Error(ctx, "Failed to write summary %s: %v", sumDocx, err)
 			failCount++
 			continue
 		}
+		s.logger.Info(ctx, "  ✓ Summary:    %s", sumDocx)
 
-		// Move SRT to summaries folder so it won't be re-processed
-		srtDest := filepath.Join(destDir, filepath.Base(srtPath))
+		// 3) Archive — move processed SRT so it won't be re-processed
+		srtDest := filepath.Join(archivedDir, filepath.Base(srtPath))
 		if err := os.Rename(srtPath, srtDest); err != nil {
-			s.logger.Warn(ctx, "Failed to move SRT %s: %v", srtPath, err)
+			s.logger.Warn(ctx, "Failed to archive SRT %s: %v", srtPath, err)
 		}
 
-		s.logger.Info(ctx, "[DONE] %s -> %s", videoName, mdPath)
+		s.logger.Info(ctx, "[DONE] %s", videoName)
 		successCount++
 	}
 
-	s.logger.Info(ctx, "Summary complete: %d success, %d failed", successCount, failCount)
+	s.logger.Info(ctx, "Processing complete: %d success, %d failed", successCount, failCount)
 	return nil
 }
 

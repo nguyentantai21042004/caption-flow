@@ -115,7 +115,7 @@ fi
 
 echo ""
 echo "Step 5: Creating directory structure..."
-mkdir -p data/{input,output,archived,temp}
+mkdir -p data/{input,output/videos,output/transcripts,output/summaries,output/archived,archived,temp}
 echo -e "${GREEN}✓ Directories created${NC}"
 
 echo ""

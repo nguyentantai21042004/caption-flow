@@ -171,18 +171,20 @@ func runSummarize(ctx context.Context, cfg *config.Config, log logger.Logger) {
 	log.Info(ctx, "Source: %s/*.srt", cfg.Paths.Output)
 	log.Info(ctx, "========================================")
 
-	destDir := filepath.Join(cfg.Paths.Output, "summaries")
-	sum := summarizer.New(keys, log)
+	sum := summarizer.New(keys, cfg.Gemini.Model, log)
 
 	startTime := time.Now()
-	if err := sum.SummarizeAll(ctx, cfg.Paths.Output, destDir); err != nil {
+	if err := sum.SummarizeAll(ctx, cfg.Paths.Output); err != nil {
 		log.Error(ctx, "Summarization failed: %v", err)
 		os.Exit(1)
 	}
 
 	log.Info(ctx, "========================================")
 	log.Info(ctx, "Summarization completed in %s", time.Since(startTime).Round(time.Millisecond))
-	log.Info(ctx, "Output: %s/", destDir)
+	log.Info(ctx, "Output:")
+	log.Info(ctx, "  Transcripts: %s/transcripts/", cfg.Paths.Output)
+	log.Info(ctx, "  Summaries:   %s/summaries/", cfg.Paths.Output)
+	log.Info(ctx, "  Archived:    %s/archived/", cfg.Paths.Output)
 	log.Info(ctx, "========================================")
 }
 
@@ -274,7 +276,7 @@ func showUsage(ctx context.Context, cfg *config.Config, log logger.Logger) {
 	log.Info(ctx, "  ./vid-pipeline -target-all            # Process ALL video files in input")
 	log.Info(ctx, "  ./vid-pipeline -target <filename>     # Process specific file(s)")
 	log.Info(ctx, "  ./vid-pipeline -watch                 # Watch mode (monitor folder)")
-	log.Info(ctx, "  ./vid-pipeline -summarize             # Summarize SRTs via Gemini")
+	log.Info(ctx, "  ./vid-pipeline -summarize             # Generate transcript + summary DOCX")
 	log.Info(ctx, "")
 	log.Info(ctx, "Available files in %s:", cfg.Paths.Input)
 
@@ -314,6 +316,10 @@ func ensureDirectories(cfg *config.Config) error {
 	dirs := []string{
 		cfg.Paths.Input,
 		cfg.Paths.Output,
+		filepath.Join(cfg.Paths.Output, "videos"),
+		filepath.Join(cfg.Paths.Output, "transcripts"),
+		filepath.Join(cfg.Paths.Output, "summaries"),
+		filepath.Join(cfg.Paths.Output, "archived"),
 		cfg.Paths.Archived,
 		cfg.Paths.Temp,
 	}

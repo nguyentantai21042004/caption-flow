@@ -2,16 +2,15 @@ package config
 
 import "fmt"
 
-// Config represents the application configuration
 type Config struct {
 	Whisper     WhisperConfig     `yaml:"whisper"`
 	FFmpeg      FFmpegConfig      `yaml:"ffmpeg"`
 	Paths       PathsConfig       `yaml:"paths"`
 	Logging     LoggingConfig     `yaml:"logging"`
 	Performance PerformanceConfig `yaml:"performance"`
+	Gemini      GeminiConfig      `yaml:"gemini"`
 }
 
-// WhisperConfig contains Whisper-related settings
 type WhisperConfig struct {
 	ModelPath  string `yaml:"model_path"`
 	BinaryPath string `yaml:"binary_path"`
@@ -21,38 +20,33 @@ type WhisperConfig struct {
 	UseGPU     bool   `yaml:"use_gpu"`
 }
 
-// FFmpegConfig contains FFmpeg-related settings
 type FFmpegConfig struct {
 	VideoBitrate string `yaml:"video_bitrate"`
 	AudioCodec   string `yaml:"audio_codec"`
 	Encoder      string `yaml:"encoder"`
 	Preset       string `yaml:"preset"`
-	MaxBitrate   string `yaml:"max_bitrate"`
-	BufSize      string `yaml:"bufsize"`
 }
 
-// PathsConfig contains directory paths
 type PathsConfig struct {
 	Input    string `yaml:"input"`
 	Output   string `yaml:"output"`
-	Archived string `yaml:"archived"` // Folder to move processed source videos
-	Temp     string `yaml:"temp"`     // Temporary folder for processing
+	Archived string `yaml:"archived"`
+	Temp     string `yaml:"temp"`
 }
 
-// LoggingConfig contains logging settings
 type LoggingConfig struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
 }
 
-// PerformanceConfig contains performance tuning settings
 type PerformanceConfig struct {
-	MaxConcurrent   int `yaml:"max_concurrent"`
-	BufferSize      int `yaml:"buffer_size"`
-	CleanupInterval int `yaml:"cleanup_interval"`
+	MaxConcurrent int `yaml:"max_concurrent"`
 }
 
-// Validate checks if the configuration is valid
+type GeminiConfig struct {
+	Model string `yaml:"model"`
+}
+
 func (c *Config) Validate() error {
 	if c.Whisper.ModelPath == "" {
 		return fmt.Errorf("whisper.model_path is required")
@@ -73,35 +67,23 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("paths.output is required")
 	}
 
-	// Set default for archived folder
 	if c.Paths.Archived == "" {
 		c.Paths.Archived = "data/archived"
 	}
-
-	// Set default for temp folder
 	if c.Paths.Temp == "" {
 		c.Paths.Temp = "data/temp"
 	}
-
-	// Set defaults for performance config
 	if c.Performance.MaxConcurrent == 0 {
 		c.Performance.MaxConcurrent = 2
 	}
-	if c.Performance.BufferSize == 0 {
-		c.Performance.BufferSize = 8388608 // 8MB
-	}
-	if c.Performance.CleanupInterval == 0 {
-		c.Performance.CleanupInterval = 300
-	}
-
-	// Set defaults for Whisper
 	if c.Whisper.Threads == 0 {
 		c.Whisper.Threads = 8
 	}
-
-	// Set defaults for FFmpeg
 	if c.FFmpeg.Preset == "" {
 		c.FFmpeg.Preset = "medium"
+	}
+	if c.Gemini.Model == "" {
+		c.Gemini.Model = "gemini-2.5-flash"
 	}
 
 	return nil

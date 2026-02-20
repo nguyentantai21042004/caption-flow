@@ -1,10 +1,21 @@
+# IDE/configuration files
 .vscode
+
+# Build artifacts and binaries
+vid-pipeline
+*.bin
+
+# Video, audio, and subtitle files
 *.mp4
+*.wav
 *.srt
 *.ass
-*.wav
+
+# Document files
 *.docx
-data/output/summaries/*.md
+
+# Whisper.cpp repo
 whisper.cpp/
-*.bin
-vid-pipeline
+
+# Gemini output markdown
+data/output/summaries/*.md
