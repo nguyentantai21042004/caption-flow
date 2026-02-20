@@ -39,7 +39,7 @@ func (p *implProcessor) burnSubtitle(ctx context.Context, videoPath, assPath str
 
 	// FFmpeg arguments optimized for M4 Pro
 	// -i: Input video
-	// -vf ass=: Video filter to burn ASS subtitle
+	// -vf subtitles=: Video filter to burn subtitle (works better than ass filter)
 	// -c:v h264_videotoolbox: Use Apple Silicon hardware encoder
 	// -b:v: Target video bitrate (8M for high quality)
 	// -maxrate: Maximum bitrate (12M)
@@ -48,9 +48,15 @@ func (p *implProcessor) burnSubtitle(ctx context.Context, videoPath, assPath str
 	// -level: H.264 level (4.2 supports up to 4K)
 	// -c:a copy: Copy audio stream without re-encoding
 	// -movflags +faststart: Optimize for streaming/web playback
+
+	// Use subtitles filter instead of ass filter (handles paths better)
+	// Escape special characters in path for FFmpeg filter
+	escapedPath := strings.ReplaceAll(assPath, ":", "\\:")
+	escapedPath = strings.ReplaceAll(escapedPath, "'", "\\'")
+
 	args := []string{
 		"-i", videoPath,
-		"-vf", fmt.Sprintf("ass=%s", assPath),
+		"-vf", fmt.Sprintf("subtitles='%s'", escapedPath),
 		"-c:v", p.cfg.FFmpeg.Encoder,
 		"-b:v", p.cfg.FFmpeg.VideoBitrate,
 	}

@@ -1,6 +1,6 @@
 whisper:
   model_path: "models/ggml-large-v3-turbo.bin"
-  binary_path: "./whisper.cpp/main"
+  binary_path: "./whisper.cpp/build/bin/whisper-cli"
   language: "en"
   # Optimized prompt for better accuracy
   prompt: "technical terms, code, architecture, API, system design, software engineering, programming, development"
