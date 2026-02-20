@@ -2,6 +2,7 @@
 *.mp4
 *.srt
 *.ass
+*.wav
 whisper.cpp/
 *.bin
 vid-pipeline

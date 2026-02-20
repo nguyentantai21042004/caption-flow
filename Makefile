@@ -1,4 +1,4 @@
-.PHONY: build run clean test install-deps setup-whisper help
+.PHONY: build run run-pipeline clean test install-deps setup-whisper help
 
 # Build the application
 build:
@@ -10,6 +10,14 @@ build:
 run: build
 	@echo "Starting caption-flow..."
 	@./vid-pipeline
+
+# Run pipeline: all files (default) or specific file(s)
+run-pipeline: build
+ifdef FILE
+	@./vid-pipeline -target "$(FILE)"
+else
+	@./vid-pipeline -target-all
+endif
 
 # Clean build artifacts
 clean:
@@ -67,11 +75,18 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  build          Build the application binary"
-	@echo "  run            Build and run the application"
-	@echo "  clean          Remove build artifacts and temp files"
-	@echo "  test           Run tests"
-	@echo "  install-deps   Install Go dependencies"
-	@echo "  setup-whisper  Clone and build whisper.cpp"
-	@echo "  verify         Verify system requirements"
-	@echo "  help           Show this help message"
+	@echo "  build                        Build the application binary"
+	@echo "  run                          Build and run (show usage)"
+	@echo "  run-pipeline                 Process ALL video files in input"
+	@echo "  run-pipeline FILE=\"name\"     Process specific file(s)"
+	@echo "  clean                        Remove build artifacts and temp files"
+	@echo "  test                         Run tests"
+	@echo "  install-deps                 Install Go dependencies"
+	@echo "  setup-whisper                Clone and build whisper.cpp"
+	@echo "  verify                       Verify system requirements"
+	@echo "  help                         Show this help message"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make run-pipeline"
+	@echo "  make run-pipeline FILE=\"1 How to login on the Global Goal Tool.mp4\""
+	@echo "  make run-pipeline FILE=\"video1.mp4,video2.mp4\""

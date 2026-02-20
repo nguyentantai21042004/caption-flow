@@ -9,7 +9,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/nguyentantai21042004/caption-flow/internal/config"
 	"github.com/nguyentantai21042004/caption-flow/internal/logger"
@@ -21,6 +24,7 @@ import (
 func main() {
 	// Parse command line flags
 	target := flag.String("target", "", "Target video file(s) to process (comma-separated or single file)")
+	targetAll := flag.Bool("target-all", false, "Process all video files in input folder")
 	watchMode := flag.Bool("watch", false, "Run in watch mode (monitor input folder)")
 	flag.Parse()
 
@@ -51,58 +55,111 @@ func main() {
 	exec := executor.New()
 	proc := processor.New(cfg, exec, log)
 
-	// Determine mode: target or watch
-	if *target != "" {
-		// Target mode: process specific files
+	// Determine mode
+	if *targetAll {
+		targets := discoverVideoFiles(ctx, cfg, log)
+		if len(targets) == 0 {
+			log.Info(ctx, "No video files found in %s", cfg.Paths.Input)
+			return
+		}
+		runTargetMode(ctx, cfg, proc, log, strings.Join(targets, ","))
+	} else if *target != "" {
 		runTargetMode(ctx, cfg, proc, log, *target)
 	} else if *watchMode {
-		// Watch mode: monitor input folder
 		runWatchMode(ctx, cfg, proc, log)
 	} else {
-		// Default: list available files and show usage
 		showUsage(ctx, cfg, log)
 	}
 }
 
-// runTargetMode processes specific target files
+// runTargetMode processes target files concurrently using goroutines
 func runTargetMode(ctx context.Context, cfg *config.Config, proc processor.Processor, log logger.Logger, target string) {
-	log.Info(ctx, "Running in TARGET mode")
-	log.Info(ctx, "Target: %s", target)
-	log.Info(ctx, "========================================")
+	startTime := time.Now()
 
-	// Parse targets (comma-separated)
-	targets := strings.Split(target, ",")
-
-	successCount := 0
-	failCount := 0
-
-	for _, t := range targets {
+	// Parse and validate targets
+	var validPaths []string
+	for _, t := range strings.Split(target, ",") {
 		t = strings.TrimSpace(t)
 		if t == "" {
 			continue
 		}
-
-		// Check if file exists in input folder
 		videoPath := filepath.Join(cfg.Paths.Input, t)
 		if _, err := os.Stat(videoPath); os.IsNotExist(err) {
-			log.Error(ctx, "File not found: %s", videoPath)
-			failCount++
+			log.Error(ctx, "File not found, skipping: %s", videoPath)
 			continue
 		}
-
-		log.Info(ctx, "Processing: %s", t)
-		if err := proc.Process(ctx, videoPath); err != nil {
-			log.Error(ctx, "Failed to process %s: %v", t, err)
-			failCount++
-		} else {
-			successCount++
-		}
+		validPaths = append(validPaths, videoPath)
 	}
 
+	if len(validPaths) == 0 {
+		log.Error(ctx, "No valid files to process")
+		return
+	}
+
+	maxConcurrent := cfg.Performance.MaxConcurrent
+	log.Info(ctx, "Running in TARGET mode (concurrent: %d goroutines)", maxConcurrent)
+	log.Info(ctx, "Files to process: %d", len(validPaths))
+	for i, p := range validPaths {
+		log.Info(ctx, "  [%d] %s", i+1, filepath.Base(p))
+	}
 	log.Info(ctx, "========================================")
-	log.Info(ctx, "Processing completed!")
-	log.Info(ctx, "Success: %d, Failed: %d", successCount, failCount)
+
+	// Concurrent processing with semaphore
+	semaphore := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
+	var successCount, failCount int64
+
+	for _, videoPath := range validPaths {
+		wg.Add(1)
+		semaphore <- struct{}{} // Acquire slot (blocks if full)
+
+		go func(path string) {
+			defer wg.Done()
+			defer func() { <-semaphore }() // Release slot
+
+			name := filepath.Base(path)
+			log.Info(ctx, "[START] %s", name)
+			if err := proc.Process(ctx, path); err != nil {
+				log.Error(ctx, "[FAIL]  %s: %v", name, err)
+				atomic.AddInt64(&failCount, 1)
+			} else {
+				log.Info(ctx, "[DONE]  %s", name)
+				atomic.AddInt64(&successCount, 1)
+			}
+		}(videoPath)
+	}
+
+	wg.Wait()
+
 	log.Info(ctx, "========================================")
+	log.Info(ctx, "All processing completed!")
+	log.Info(ctx, "Success: %d, Failed: %d, Total time: %s", successCount, failCount, time.Since(startTime).Round(time.Millisecond))
+	log.Info(ctx, "========================================")
+}
+
+// discoverVideoFiles scans the input directory for all video files
+func discoverVideoFiles(ctx context.Context, cfg *config.Config, log logger.Logger) []string {
+	supportedExts := map[string]bool{
+		".mp4": true, ".mov": true, ".avi": true,
+		".mkv": true, ".webm": true, ".m4v": true, ".flv": true,
+	}
+
+	files, err := os.ReadDir(cfg.Paths.Input)
+	if err != nil {
+		log.Error(ctx, "Failed to read input directory: %v", err)
+		return nil
+	}
+
+	var videos []string
+	for _, f := range files {
+		if f.IsDir() || strings.HasPrefix(f.Name(), ".") {
+			continue
+		}
+		if supportedExts[strings.ToLower(filepath.Ext(f.Name()))] {
+			videos = append(videos, f.Name())
+		}
+	}
+	return videos
 }
 
 // runWatchMode monitors input folder for new files
@@ -165,6 +222,7 @@ func runWatchMode(ctx context.Context, cfg *config.Config, proc processor.Proces
 // showUsage displays available files and usage instructions
 func showUsage(ctx context.Context, cfg *config.Config, log logger.Logger) {
 	log.Info(ctx, "Usage:")
+	log.Info(ctx, "  ./vid-pipeline -target-all            # Process ALL video files in input")
 	log.Info(ctx, "  ./vid-pipeline -target <filename>     # Process specific file(s)")
 	log.Info(ctx, "  ./vid-pipeline -watch                 # Watch mode (monitor folder)")
 	log.Info(ctx, "")

@@ -30,23 +30,26 @@ func (p *implProcessor) burnSubtitle(ctx context.Context, videoPath, srtPath str
 	}
 	defer os.Remove(assPath)
 
-	// Create temp files in workspace temp folder
-	tempSubtitle := filepath.Join(p.cfg.Paths.Temp, "subtitle.ass")
-	tempOutput := filepath.Join(p.cfg.Paths.Temp, "output.mp4")
+	// Create isolated temp dir per video to avoid race conditions
+	tempDir, err := os.MkdirTemp(p.cfg.Paths.Temp, "burn-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	tempSubtitle := filepath.Join(tempDir, "subtitle.ass")
+	tempOutput := filepath.Join(tempDir, "output.mp4")
 
 	// Copy subtitle to temp location
 	if err := p.copyFile(assPath, tempSubtitle); err != nil {
 		return "", fmt.Errorf("copy subtitle to temp: %w", err)
 	}
-	defer os.Remove(tempSubtitle)
-	defer os.Remove(tempOutput)
 
 	// Get absolute paths for input/output
 	absVideoPath, _ := filepath.Abs(videoPath)
 	absTempOutput, _ := filepath.Abs(tempOutput)
 
-	// Get working directory and relative subtitle filename
-	workDir := filepath.Dir(tempSubtitle)
+	workDir := tempDir
 	subFilename := filepath.Base(tempSubtitle)
 
 	// Clean filename (trim spaces)
