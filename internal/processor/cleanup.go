@@ -7,40 +7,35 @@ import (
 	"path/filepath"
 )
 
-// moveToProcessing moves video file from input to processing folder
-func (p *implProcessor) moveToProcessing(ctx context.Context, videoPath string) (string, error) {
-	filename := filepath.Base(videoPath)
-	destPath := filepath.Join(p.cfg.Paths.Processing, filename)
-
-	p.logger.Info(ctx, "Moving to processing folder: %s -> %s", videoPath, destPath)
-
-	if err := os.Rename(videoPath, destPath); err != nil {
-		return "", fmt.Errorf("move to processing: %w", err)
+// moveToArchived moves original video to archived folder after successful processing
+func (p *implProcessor) moveToArchived(ctx context.Context, videoPath string) error {
+	// Ensure archived folder exists
+	if err := os.MkdirAll(p.cfg.Paths.Archived, 0755); err != nil {
+		return fmt.Errorf("create archived folder: %w", err)
 	}
 
-	return destPath, nil
-}
+	filename := filepath.Base(videoPath)
+	destPath := filepath.Join(p.cfg.Paths.Archived, filename)
+	p.logger.Info(ctx, "Moving original video to archived: %s -> %s", videoPath, destPath)
 
-// moveToOutput moves subtitle file to output folder
-func (p *implProcessor) moveToOutput(ctx context.Context, srtPath string) error {
-	srtFilename := filepath.Base(srtPath)
-	destSRT := filepath.Join(p.cfg.Paths.Output, srtFilename)
-
-	p.logger.Info(ctx, "Moving SRT to output: %s -> %s", srtPath, destSRT)
-
-	if err := os.Rename(srtPath, destSRT); err != nil {
-		return fmt.Errorf("move SRT to output: %w", err)
+	if err := os.Rename(videoPath, destPath); err != nil {
+		return fmt.Errorf("move to archived: %w", err)
 	}
 
 	return nil
 }
 
-// cleanup removes temporary files and original video from processing folder
-func (p *implProcessor) cleanup(ctx context.Context, videoPath string) error {
-	p.logger.Info(ctx, "Cleaning up: %s", videoPath)
+// copySRT copies subtitle file to output folder
+func (p *implProcessor) copySRT(ctx context.Context, srtPath, destPath string) error {
+	p.logger.Info(ctx, "Copying SRT to output: %s -> %s", srtPath, destPath)
 
-	if err := os.Remove(videoPath); err != nil {
-		return fmt.Errorf("remove video from processing: %w", err)
+	data, err := os.ReadFile(srtPath)
+	if err != nil {
+		return fmt.Errorf("read SRT: %w", err)
+	}
+
+	if err := os.WriteFile(destPath, data, 0644); err != nil {
+		return fmt.Errorf("write SRT to output: %w", err)
 	}
 
 	return nil

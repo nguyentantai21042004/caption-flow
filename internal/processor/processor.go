@@ -3,64 +3,55 @@ package processor
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"time"
 )
 
 // Process orchestrates the entire video processing pipeline
 func (p *implProcessor) Process(ctx context.Context, videoPath string) error {
 	startTime := time.Now()
+	originalFilename := filepath.Base(videoPath)
+
 	p.logger.Info(ctx, "========================================")
 	p.logger.Info(ctx, "Starting video processing: %s", videoPath)
 	p.logger.Info(ctx, "========================================")
 
-	// Step 1: Move to processing folder
-	processingPath, err := p.moveToProcessing(ctx, videoPath)
-	if err != nil {
-		return fmt.Errorf("move to processing: %w", err)
-	}
-
-	// Step 2: Extract audio
-	audioPath, err := p.extractAudio(ctx, processingPath)
+	// Step 1: Extract audio
+	audioPath, err := p.extractAudio(ctx, videoPath)
 	if err != nil {
 		return fmt.Errorf("extract audio: %w", err)
 	}
 	defer p.cleanupTempFile(ctx, audioPath)
 
-	// Step 3: Transcribe audio to subtitle
+	// Step 2: Transcribe audio to subtitle
 	srtPath, err := p.transcribe(ctx, audioPath)
 	if err != nil {
 		return fmt.Errorf("transcribe: %w", err)
 	}
+	defer p.cleanupTempFile(ctx, srtPath)
 
-	// Step 4: Convert SRT to ASS
-	assPath, err := p.convertToASS(ctx, srtPath)
-	if err != nil {
-		return fmt.Errorf("convert to ASS: %w", err)
-	}
-	defer p.cleanupTempFile(ctx, assPath)
-
-	// Step 5: Burn subtitle into video
-	outputPath, err := p.burnSubtitle(ctx, processingPath, assPath)
+	// Step 3: Burn subtitle into video (keeps original filename)
+	outputPath, err := p.burnSubtitle(ctx, videoPath, srtPath)
 	if err != nil {
 		return fmt.Errorf("burn subtitle: %w", err)
 	}
 
-	// Step 6: Move SRT to output folder
-	if err := p.moveToOutput(ctx, srtPath); err != nil {
-		p.logger.Warn(ctx, "Failed to move SRT to output: %v", err)
-		// Not a critical error, continue
+	// Step 4: Copy SRT to output folder (with original name)
+	srtOutputPath := filepath.Join(p.cfg.Paths.Output, originalFilename[:len(originalFilename)-len(filepath.Ext(originalFilename))]+".srt")
+	if err := p.copySRT(ctx, srtPath, srtOutputPath); err != nil {
+		p.logger.Warn(ctx, "Failed to copy SRT to output: %v", err)
 	}
 
-	// Step 7: Cleanup original video from processing
-	if err := p.cleanup(ctx, processingPath); err != nil {
-		p.logger.Warn(ctx, "Cleanup failed: %v", err)
-		// Not a critical error, continue
+	// Step 5: Move original video to archived folder
+	if err := p.moveToArchived(ctx, videoPath); err != nil {
+		p.logger.Warn(ctx, "Failed to move original to archived folder: %v", err)
 	}
 
 	duration := time.Since(startTime)
 	p.logger.Info(ctx, "========================================")
 	p.logger.Info(ctx, "Processing completed successfully!")
 	p.logger.Info(ctx, "Output video: %s", outputPath)
+	p.logger.Info(ctx, "Output subtitle: %s", srtOutputPath)
 	p.logger.Info(ctx, "Processing time: %s", duration)
 	p.logger.Info(ctx, "========================================")
 

@@ -115,12 +115,12 @@ fi
 
 echo ""
 echo "Step 5: Creating directory structure..."
-mkdir -p data/{input,processing,output}
+mkdir -p data/{input,output,archived,temp}
 echo -e "${GREEN}✓ Directories created${NC}"
 
 echo ""
 echo "Step 6: Building application..."
-go build -ldflags="-s -w" -o vid-pipeline pipeline/main.go
+go build -ldflags="-s -w" -o vid-pipeline cmd/pipeline/main.go
 echo -e "${GREEN}✓ Application built: ./vid-pipeline${NC}"
 
 echo ""

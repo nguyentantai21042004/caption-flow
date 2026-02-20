@@ -65,7 +65,7 @@ cd caption-flow
 go mod download
 
 # Build the binary
-go build -o vid-pipeline pipeline/main.go
+go build -o vid-pipeline cmd/pipeline/main.go
 ```
 
 ## Configuration
@@ -131,8 +131,9 @@ For each video, the pipeline:
 
 ```
 caption-flow/
-├── pipeline/
-│   └── main.go                  # Application entry point
+├── cmd/
+│   └── pipeline/
+│       └── main.go              # Application entry point
 ├── internal/
 │   ├── config/                  # Configuration management
 │   ├── logger/                  # Structured logging
@@ -140,10 +141,13 @@ caption-flow/
 │   └── watcher/                 # File system monitoring
 ├── pkg/
 │   └── executor/                # Command execution wrapper
+├── scripts/
+│   └── setup.sh                 # Setup script
 ├── data/
 │   ├── input/                   # Drop videos here
-│   ├── processing/              # Temporary processing folder
-│   └── output/                  # Final results
+│   ├── output/                  # Final results
+│   ├── archived/                # Processed source videos
+│   └── temp/                    # Temporary processing files
 ├── models/                      # Whisper models
 ├── config.yaml                  # Configuration file
 └── README.md

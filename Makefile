@@ -3,7 +3,7 @@
 # Build the application
 build:
 	@echo "Building caption-flow..."
-	@go build -ldflags="-s -w" -o vid-pipeline pipeline/main.go
+	@go build -ldflags="-s -w" -o vid-pipeline cmd/pipeline/main.go
 	@echo "Build complete: ./vid-pipeline"
 
 # Run the application
@@ -15,7 +15,7 @@ run: build
 clean:
 	@echo "Cleaning..."
 	@rm -f vid-pipeline
-	@rm -rf data/processing/*
+	@rm -rf data/temp/*
 	@echo "Clean complete"
 
 # Run tests

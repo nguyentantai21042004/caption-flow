@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"github.com/nguyentantai21042004/caption-flow/internal/config"
@@ -16,6 +19,11 @@ import (
 )
 
 func main() {
+	// Parse command line flags
+	target := flag.String("target", "", "Target video file(s) to process (comma-separated or single file)")
+	watchMode := flag.Bool("watch", false, "Run in watch mode (monitor input folder)")
+	flag.Parse()
+
 	ctx := context.Background()
 
 	// Load configuration
@@ -32,8 +40,6 @@ func main() {
 	log.Info(ctx, "========================================")
 	log.Info(ctx, "System: %s/%s", runtime.GOOS, runtime.GOARCH)
 	log.Info(ctx, "CPU Cores: %d", runtime.NumCPU())
-	log.Info(ctx, "Max Concurrent Processing: %d", cfg.Performance.MaxConcurrent)
-	log.Info(ctx, "Configuration loaded successfully")
 
 	// Verify required directories exist
 	if err := ensureDirectories(cfg); err != nil {
@@ -44,6 +50,66 @@ func main() {
 	// Initialize dependencies
 	exec := executor.New()
 	proc := processor.New(cfg, exec, log)
+
+	// Determine mode: target or watch
+	if *target != "" {
+		// Target mode: process specific files
+		runTargetMode(ctx, cfg, proc, log, *target)
+	} else if *watchMode {
+		// Watch mode: monitor input folder
+		runWatchMode(ctx, cfg, proc, log)
+	} else {
+		// Default: list available files and show usage
+		showUsage(ctx, cfg, log)
+	}
+}
+
+// runTargetMode processes specific target files
+func runTargetMode(ctx context.Context, cfg *config.Config, proc processor.Processor, log logger.Logger, target string) {
+	log.Info(ctx, "Running in TARGET mode")
+	log.Info(ctx, "Target: %s", target)
+	log.Info(ctx, "========================================")
+
+	// Parse targets (comma-separated)
+	targets := strings.Split(target, ",")
+
+	successCount := 0
+	failCount := 0
+
+	for _, t := range targets {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+
+		// Check if file exists in input folder
+		videoPath := filepath.Join(cfg.Paths.Input, t)
+		if _, err := os.Stat(videoPath); os.IsNotExist(err) {
+			log.Error(ctx, "File not found: %s", videoPath)
+			failCount++
+			continue
+		}
+
+		log.Info(ctx, "Processing: %s", t)
+		if err := proc.Process(ctx, videoPath); err != nil {
+			log.Error(ctx, "Failed to process %s: %v", t, err)
+			failCount++
+		} else {
+			successCount++
+		}
+	}
+
+	log.Info(ctx, "========================================")
+	log.Info(ctx, "Processing completed!")
+	log.Info(ctx, "Success: %d, Failed: %d", successCount, failCount)
+	log.Info(ctx, "========================================")
+}
+
+// runWatchMode monitors input folder for new files
+func runWatchMode(ctx context.Context, cfg *config.Config, proc processor.Processor, log logger.Logger) {
+	log.Info(ctx, "Running in WATCH mode")
+	log.Info(ctx, "Max Concurrent Processing: %d", cfg.Performance.MaxConcurrent)
+	log.Info(ctx, "========================================")
 
 	// Create watcher with processor as handler and concurrency control
 	w, err := watcher.New(cfg.Paths.Input, proc.Process, log, cfg.Performance.MaxConcurrent)
@@ -69,7 +135,6 @@ func main() {
 		}
 	}()
 
-	log.Info(ctx, "========================================")
 	log.Info(ctx, "Video Pipeline is ready!")
 	log.Info(ctx, "Monitoring: %s", cfg.Paths.Input)
 	log.Info(ctx, "Output: %s", cfg.Paths.Output)
@@ -97,12 +162,52 @@ func main() {
 	log.Info(ctx, "Video Pipeline stopped")
 }
 
+// showUsage displays available files and usage instructions
+func showUsage(ctx context.Context, cfg *config.Config, log logger.Logger) {
+	log.Info(ctx, "Usage:")
+	log.Info(ctx, "  ./vid-pipeline -target <filename>     # Process specific file(s)")
+	log.Info(ctx, "  ./vid-pipeline -watch                 # Watch mode (monitor folder)")
+	log.Info(ctx, "")
+	log.Info(ctx, "Available files in %s:", cfg.Paths.Input)
+
+	files, err := os.ReadDir(cfg.Paths.Input)
+	if err != nil {
+		log.Error(ctx, "Failed to read input directory: %v", err)
+		return
+	}
+
+	videoCount := 0
+	for _, file := range files {
+		if file.IsDir() || strings.HasPrefix(file.Name(), ".") {
+			continue
+		}
+
+		ext := strings.ToLower(filepath.Ext(file.Name()))
+		if ext == ".mp4" || ext == ".mov" || ext == ".avi" || ext == ".mkv" || ext == ".webm" {
+			info, _ := file.Info()
+			log.Info(ctx, "  - %s (%.2f MB)", file.Name(), float64(info.Size())/1024/1024)
+			videoCount++
+		}
+	}
+
+	if videoCount == 0 {
+		log.Info(ctx, "  (no video files found)")
+	}
+
+	log.Info(ctx, "")
+	log.Info(ctx, "Examples:")
+	log.Info(ctx, "  ./vid-pipeline -target \"video.mp4\"")
+	log.Info(ctx, "  ./vid-pipeline -target \"video1.mp4,video2.mp4\"")
+	log.Info(ctx, "  ./vid-pipeline -watch")
+}
+
 // ensureDirectories creates required directories if they don't exist
 func ensureDirectories(cfg *config.Config) error {
 	dirs := []string{
 		cfg.Paths.Input,
-		cfg.Paths.Processing,
 		cfg.Paths.Output,
+		cfg.Paths.Archived,
+		cfg.Paths.Temp,
 	}
 
 	for _, dir := range dirs {

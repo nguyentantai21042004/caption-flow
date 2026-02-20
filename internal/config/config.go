@@ -33,9 +33,10 @@ type FFmpegConfig struct {
 
 // PathsConfig contains directory paths
 type PathsConfig struct {
-	Input      string `yaml:"input"`
-	Processing string `yaml:"processing"`
-	Output     string `yaml:"output"`
+	Input    string `yaml:"input"`
+	Output   string `yaml:"output"`
+	Archived string `yaml:"archived"` // Folder to move processed source videos
+	Temp     string `yaml:"temp"`     // Temporary folder for processing
 }
 
 // LoggingConfig contains logging settings
@@ -68,11 +69,18 @@ func (c *Config) Validate() error {
 	if c.Paths.Input == "" {
 		return fmt.Errorf("paths.input is required")
 	}
-	if c.Paths.Processing == "" {
-		return fmt.Errorf("paths.processing is required")
-	}
 	if c.Paths.Output == "" {
 		return fmt.Errorf("paths.output is required")
+	}
+
+	// Set default for archived folder
+	if c.Paths.Archived == "" {
+		c.Paths.Archived = "data/archived"
+	}
+
+	// Set default for temp folder
+	if c.Paths.Temp == "" {
+		c.Paths.Temp = "data/temp"
 	}
 
 	// Set defaults for performance config

@@ -23,9 +23,8 @@ func TestValidate(t *testing.T) {
 					Encoder: "h264_videotoolbox",
 				},
 				Paths: PathsConfig{
-					Input:      "data/input",
-					Processing: "data/processing",
-					Output:     "data/output",
+					Input:  "data/input",
+					Output: "data/output",
 				},
 			},
 			wantErr: false,
@@ -41,9 +40,8 @@ func TestValidate(t *testing.T) {
 					Encoder: "h264_videotoolbox",
 				},
 				Paths: PathsConfig{
-					Input:      "data/input",
-					Processing: "data/processing",
-					Output:     "data/output",
+					Input:  "data/input",
+					Output: "data/output",
 				},
 			},
 			wantErr: true,
@@ -97,7 +95,6 @@ ffmpeg:
 
 paths:
   input: "data/input"
-  processing: "data/processing"
   output: "data/output"
 
 logging:

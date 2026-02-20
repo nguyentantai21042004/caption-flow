@@ -1,6 +1,7 @@
 .vscode
 *.mp4
 *.srt
+*.ass
 whisper.cpp/
 *.bin
 vid-pipeline

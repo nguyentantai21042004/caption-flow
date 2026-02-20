@@ -3,103 +3,118 @@ package processor
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
 
-// convertToASS converts SRT subtitle to ASS format
-// ASS format is required to avoid font rendering issues on macOS
-func (p *implProcessor) convertToASS(ctx context.Context, srtPath string) (string, error) {
-	assPath := strings.TrimSuffix(srtPath, filepath.Ext(srtPath)) + ".ass"
-
-	p.logger.Info(ctx, "Converting SRT to ASS: %s", srtPath)
-
-	args := []string{
-		"-i", srtPath,
-		"-y", // Overwrite output file if exists
-		assPath,
-	}
-
-	if _, err := p.executor.Execute(ctx, "ffmpeg", args...); err != nil {
-		return "", fmt.Errorf("ffmpeg convert to ASS: %w", err)
-	}
-
-	p.logger.Info(ctx, "Converted to ASS: %s", assPath)
-	return assPath, nil
-}
-
 // burnSubtitle burns subtitle into video using hardware acceleration
-// Optimized for M4 Pro with VideoToolbox encoder
-func (p *implProcessor) burnSubtitle(ctx context.Context, videoPath, assPath string) (string, error) {
-	// Generate output path
+// Uses relative path with working directory to avoid FFmpeg filter parsing issues
+func (p *implProcessor) burnSubtitle(ctx context.Context, videoPath, srtPath string) (string, error) {
 	filename := filepath.Base(videoPath)
-	outputPath := filepath.Join(p.cfg.Paths.Output, "final_"+filename)
+	outputPath := filepath.Join(p.cfg.Paths.Output, filename) // Keep original name
 
 	p.logger.Info(ctx, "Burning subtitle into video (M4 Pro optimized): %s", videoPath)
 
-	// FFmpeg arguments optimized for M4 Pro
-	// -i: Input video
-	// -vf subtitles=: Video filter to burn subtitle (works better than ass filter)
-	// -c:v h264_videotoolbox: Use Apple Silicon hardware encoder
-	// -b:v: Target video bitrate (8M for high quality)
-	// -maxrate: Maximum bitrate (12M)
-	// -bufsize: Buffer size for rate control (16M)
-	// -profile:v: H.264 profile (high for better quality)
-	// -level: H.264 level (4.2 supports up to 4K)
-	// -c:a copy: Copy audio stream without re-encoding
-	// -movflags +faststart: Optimize for streaming/web playback
+	// Convert SRT to ASS first for better styling
+	assPath := srtPath[:len(srtPath)-4] + ".ass"
+	argsConvert := []string{
+		"-i", srtPath,
+		"-y",
+		assPath,
+	}
 
-	// Use subtitles filter instead of ass filter (handles paths better)
-	// Escape special characters in path for FFmpeg filter
-	escapedPath := strings.ReplaceAll(assPath, ":", "\\:")
-	escapedPath = strings.ReplaceAll(escapedPath, "'", "\\'")
+	if _, err := p.executor.Execute(ctx, "ffmpeg", argsConvert...); err != nil {
+		p.logger.Warn(ctx, "Failed to convert SRT to ASS, using SRT: %v", err)
+		assPath = srtPath // Use SRT if conversion fails
+	}
+	defer os.Remove(assPath)
 
+	// Create temp files in workspace temp folder
+	tempSubtitle := filepath.Join(p.cfg.Paths.Temp, "subtitle.ass")
+	tempOutput := filepath.Join(p.cfg.Paths.Temp, "output.mp4")
+
+	// Copy subtitle to temp location
+	if err := p.copyFile(assPath, tempSubtitle); err != nil {
+		return "", fmt.Errorf("copy subtitle to temp: %w", err)
+	}
+	defer os.Remove(tempSubtitle)
+	defer os.Remove(tempOutput)
+
+	// Get absolute paths for input/output
+	absVideoPath, _ := filepath.Abs(videoPath)
+	absTempOutput, _ := filepath.Abs(tempOutput)
+
+	// Get working directory and relative subtitle filename
+	workDir := filepath.Dir(tempSubtitle)
+	subFilename := filepath.Base(tempSubtitle)
+
+	// Clean filename (trim spaces)
+	subFilename = strings.TrimSpace(subFilename)
+
+	// Use subtitles filter with RELATIVE path (no quotes needed!)
 	args := []string{
-		"-i", videoPath,
-		"-vf", fmt.Sprintf("subtitles='%s'", escapedPath),
+		"-y",
+		"-i", absVideoPath,
+		"-vf", fmt.Sprintf("subtitles=%s", subFilename), // No quotes!
 		"-c:v", p.cfg.FFmpeg.Encoder,
 		"-b:v", p.cfg.FFmpeg.VideoBitrate,
+		"-c:a", p.cfg.FFmpeg.AudioCodec,
+		absTempOutput,
 	}
 
-	// Add advanced encoding options if available
-	if p.cfg.FFmpeg.MaxBitrate != "" {
-		args = append(args, "-maxrate", p.cfg.FFmpeg.MaxBitrate)
-	}
-	if p.cfg.FFmpeg.BufSize != "" {
-		args = append(args, "-bufsize", p.cfg.FFmpeg.BufSize)
-	}
+	p.logger.Debug(ctx, "FFmpeg command in dir %s: ffmpeg -vf subtitles=%s ...", workDir, subFilename)
 
-	// Add quality preset
-	if p.cfg.FFmpeg.Preset != "" {
-		// VideoToolbox doesn't use preset, but we can control quality
-		// Use -q:v for quality (lower is better, 1-100)
-		// For "medium" preset, use q:v 65 (good balance)
-		switch p.cfg.FFmpeg.Preset {
-		case "fast":
-			args = append(args, "-q:v", "75")
-		case "medium":
-			args = append(args, "-q:v", "65")
-		case "slow":
-			args = append(args, "-q:v", "55")
+	// Execute FFmpeg in the temp directory (this is the key!)
+	if _, err := p.executor.ExecuteInDir(ctx, workDir, "ffmpeg", args...); err != nil {
+		// If hardware encoder fails, try software encoder
+		p.logger.Warn(ctx, "Hardware encoder failed, trying software encoder...")
+		if err := p.burnSubtitleSoftware(ctx, workDir, absVideoPath, subFilename, absTempOutput); err != nil {
+			return "", fmt.Errorf("both hardware and software encoders failed: %w", err)
 		}
 	}
 
-	// H.264 profile and level for high quality
-	args = append(args,
-		"-profile:v", "high",
-		"-level", "4.2",
-		"-c:a", p.cfg.FFmpeg.AudioCodec,
-		"-movflags", "+faststart", // Optimize for streaming
-		"-y", // Overwrite output file if exists
-		outputPath,
-	)
-
-	p.logger.Debug(ctx, "FFmpeg command: ffmpeg %v", strings.Join(args, " "))
-
-	if _, err := p.executor.Execute(ctx, "ffmpeg", args...); err != nil {
-		return "", fmt.Errorf("ffmpeg burn subtitle: %w", err)
+	// Move temp output to final location
+	if err := os.Rename(tempOutput, outputPath); err != nil {
+		// If rename fails, copy instead
+		if err := p.copyFile(tempOutput, outputPath); err != nil {
+			return "", fmt.Errorf("move output to final location: %w", err)
+		}
 	}
 
 	p.logger.Info(ctx, "Subtitle burned successfully: %s", outputPath)
 	return outputPath, nil
+}
+
+// copyFile copies a file from src to dst
+func (p *implProcessor) copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("read source: %w", err)
+	}
+	if err := os.WriteFile(dst, data, 0644); err != nil {
+		return fmt.Errorf("write destination: %w", err)
+	}
+	return nil
+}
+
+// burnSubtitleSoftware uses software encoder as fallback
+func (p *implProcessor) burnSubtitleSoftware(ctx context.Context, workDir, videoPath, subFilename, outputPath string) error {
+	args := []string{
+		"-y",
+		"-i", videoPath,
+		"-vf", fmt.Sprintf("subtitles=%s", subFilename), // No quotes!
+		"-c:v", "libx264",
+		"-preset", "medium",
+		"-crf", "23",
+		"-c:a", "copy",
+		outputPath,
+	}
+
+	if _, err := p.executor.ExecuteInDir(ctx, workDir, "ffmpeg", args...); err != nil {
+		return fmt.Errorf("software encoder failed: %w", err)
+	}
+
+	p.logger.Info(ctx, "Subtitle burned successfully with software encoder")
+	return nil
 }

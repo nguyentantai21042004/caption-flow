@@ -24,8 +24,9 @@ ffmpeg:
 
 paths:
   input: "data/input"
-  processing: "data/processing"
   output: "data/output"
+  archived: "data/archived"  # Folder to store original videos after processing
+  temp: "data/temp"  # Temporary folder for processing
 
 logging:
   level: "info"
