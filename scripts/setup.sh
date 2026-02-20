@@ -44,21 +44,26 @@ fi
 echo "Step 1: Checking prerequisites..."
 echo ""
 
-# Check FFmpeg
+# Check FFmpeg - install if missing
 if ! command -v ffmpeg &> /dev/null; then
-    echo -e "${RED}FFmpeg is not installed${NC}"
-    echo "Install with: brew install ffmpeg"
-    exit 1
+    echo -e "${YELLOW}FFmpeg is not installed. Installing via Homebrew...${NC}"
+    if command -v brew &> /dev/null; then
+        brew install ffmpeg
+        echo -e "${GREEN}✓ FFmpeg installed${NC}"
+    else
+        echo -e "${YELLOW}Homebrew not found. Please install FFmpeg manually: https://ffmpeg.org${NC}"
+    fi
 else
     echo -e "${GREEN}✓ FFmpeg installed:${NC} $(ffmpeg -version | head -n 1)"
 fi
 
-# Check VideoToolbox encoder
-if ffmpeg -encoders 2>/dev/null | grep -q "h264_videotoolbox"; then
-    echo -e "${GREEN}✓ VideoToolbox encoder available${NC}"
-else
-    echo -e "${RED}✗ VideoToolbox encoder not found${NC}"
-    echo "Your FFmpeg build may not support hardware acceleration"
+# Check VideoToolbox encoder (only if ffmpeg exists)
+if command -v ffmpeg &> /dev/null; then
+    if ffmpeg -encoders 2>/dev/null | grep -q "h264_videotoolbox"; then
+        echo -e "${GREEN}✓ VideoToolbox encoder available${NC}"
+    else
+        echo -e "${YELLOW}✗ VideoToolbox encoder not found (hardware acceleration may be limited)${NC}"
+    fi
 fi
 
 echo ""
@@ -97,13 +102,11 @@ if [ ! -f "models/ggml-large-v3-turbo.bin" ]; then
     elif command -v curl &> /dev/null; then
         curl -L -o ggml-large-v3-turbo.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
     else
-        echo -e "${RED}Neither wget nor curl found. Please download manually:${NC}"
-        echo "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"
-        echo "Save to: models/ggml-large-v3-turbo.bin"
-        cd ..
-        exit 1
+        echo -e "${YELLOW}Neither wget nor curl found. Skipping model download.${NC}"
+        echo "Download manually and save to models/ggml-large-v3-turbo.bin:"
+        echo "  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"
     fi
-    
+
     cd ..
     echo -e "${GREEN}✓ Model downloaded${NC}"
 else
