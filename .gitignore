@@ -3,6 +3,8 @@
 *.srt
 *.ass
 *.wav
+*.docx
+data/output/summaries/*.md
 whisper.cpp/
 *.bin
 vid-pipeline

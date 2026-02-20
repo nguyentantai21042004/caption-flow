@@ -17,6 +17,7 @@ import (
 	"github.com/nguyentantai21042004/caption-flow/internal/config"
 	"github.com/nguyentantai21042004/caption-flow/internal/logger"
 	"github.com/nguyentantai21042004/caption-flow/internal/processor"
+	"github.com/nguyentantai21042004/caption-flow/internal/summarizer"
 	"github.com/nguyentantai21042004/caption-flow/internal/watcher"
 	"github.com/nguyentantai21042004/caption-flow/pkg/executor"
 )
@@ -26,6 +27,7 @@ func main() {
 	target := flag.String("target", "", "Target video file(s) to process (comma-separated or single file)")
 	targetAll := flag.Bool("target-all", false, "Process all video files in input folder")
 	watchMode := flag.Bool("watch", false, "Run in watch mode (monitor input folder)")
+	summarizeMode := flag.Bool("summarize", false, "Summarize all SRT files in output folder via Gemini")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -56,6 +58,11 @@ func main() {
 	proc := processor.New(cfg, exec, log)
 
 	// Determine mode
+	if *summarizeMode {
+		runSummarize(ctx, cfg, log)
+		return
+	}
+
 	if *targetAll {
 		targets := discoverVideoFiles(ctx, cfg, log)
 		if len(targets) == 0 {
@@ -134,6 +141,48 @@ func runTargetMode(ctx context.Context, cfg *config.Config, proc processor.Proce
 	log.Info(ctx, "========================================")
 	log.Info(ctx, "All processing completed!")
 	log.Info(ctx, "Success: %d, Failed: %d, Total time: %s", successCount, failCount, time.Since(startTime).Round(time.Millisecond))
+	log.Info(ctx, "========================================")
+}
+
+// runSummarize reads SRT files from output and generates a markdown summary via Gemini
+func runSummarize(ctx context.Context, cfg *config.Config, log logger.Logger) {
+	keysEnv := os.Getenv("GEMINI_API_KEYS")
+	if keysEnv == "" {
+		log.Error(ctx, "GEMINI_API_KEYS environment variable is not set")
+		log.Error(ctx, "Usage: export GEMINI_API_KEYS=\"key1,key2,key3\"")
+		os.Exit(1)
+	}
+
+	var keys []string
+	for _, k := range strings.Split(keysEnv, ",") {
+		k = strings.TrimSpace(k)
+		if k != "" {
+			keys = append(keys, k)
+		}
+	}
+
+	if len(keys) == 0 {
+		log.Error(ctx, "No valid API keys found in GEMINI_API_KEYS")
+		os.Exit(1)
+	}
+
+	log.Info(ctx, "Running in SUMMARIZE mode")
+	log.Info(ctx, "API keys loaded: %d", len(keys))
+	log.Info(ctx, "Source: %s/*.srt", cfg.Paths.Output)
+	log.Info(ctx, "========================================")
+
+	destDir := filepath.Join(cfg.Paths.Output, "summaries")
+	sum := summarizer.New(keys, log)
+
+	startTime := time.Now()
+	if err := sum.SummarizeAll(ctx, cfg.Paths.Output, destDir); err != nil {
+		log.Error(ctx, "Summarization failed: %v", err)
+		os.Exit(1)
+	}
+
+	log.Info(ctx, "========================================")
+	log.Info(ctx, "Summarization completed in %s", time.Since(startTime).Round(time.Millisecond))
+	log.Info(ctx, "Output: %s/", destDir)
 	log.Info(ctx, "========================================")
 }
 
@@ -225,6 +274,7 @@ func showUsage(ctx context.Context, cfg *config.Config, log logger.Logger) {
 	log.Info(ctx, "  ./vid-pipeline -target-all            # Process ALL video files in input")
 	log.Info(ctx, "  ./vid-pipeline -target <filename>     # Process specific file(s)")
 	log.Info(ctx, "  ./vid-pipeline -watch                 # Watch mode (monitor folder)")
+	log.Info(ctx, "  ./vid-pipeline -summarize             # Summarize SRTs via Gemini")
 	log.Info(ctx, "")
 	log.Info(ctx, "Available files in %s:", cfg.Paths.Input)
 
