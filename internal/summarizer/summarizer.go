@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"google.golang.org/genai"
 )
@@ -104,6 +105,12 @@ func (s *implSummarizer) SummarizeAll(ctx context.Context, outputDir string) err
 
 		s.logger.Info(ctx, "[DONE] %s", videoName)
 		successCount++
+
+		// Rate limiting delay between successfully processed files (except the last one)
+		if i < len(srtFiles)-1 {
+			s.logger.Info(ctx, "Sleeping 3s to respect Gemini API rate limits...")
+			time.Sleep(3 * time.Second)
+		}
 	}
 
 	s.logger.Info(ctx, "Processing complete: %d success, %d failed", successCount, failCount)
@@ -115,10 +122,11 @@ func (s *implSummarizer) SummarizeAll(ctx context.Context, outputDir string) err
 func (s *implSummarizer) callGemini(ctx context.Context, transcript string) (string, error) {
 	prompt := fmt.Sprintf(summaryPrompt, transcript)
 
-	attempts := len(s.apiKeys)
+	attempts := len(s.apiKeys) * 3 // Try each key multiple times with backoff
 	var lastErr error
+	backoff := 5 * time.Second
 
-	for range attempts {
+	for i := 0; i < attempts; i++ {
 		key := s.apiKeys[s.currentKey]
 
 		client, err := genai.NewClient(ctx, &genai.ClientConfig{
@@ -134,10 +142,16 @@ func (s *implSummarizer) callGemini(ctx context.Context, transcript string) (str
 		result, err := client.Models.GenerateContent(ctx, s.model, genai.Text(prompt), nil)
 		if err != nil {
 			errMsg := err.Error()
-			if strings.Contains(errMsg, "429") || strings.Contains(errMsg, "quota") || strings.Contains(errMsg, "RESOURCE_EXHAUSTED") {
-				s.logger.Warn(ctx, "Key %d rate limited, rotating...", s.currentKey+1)
+			if strings.Contains(errMsg, "429") || strings.Contains(errMsg, "quota") || strings.Contains(errMsg, "RESOURCE_EXHAUSTED") || strings.Contains(errMsg, "retry in") {
+				s.logger.Warn(ctx, "Key %d rate limited, rotating... (attempt %d/%d). Sleeping for %v", s.currentKey+1, i+1, attempts, backoff)
 				s.rotateKey()
 				lastErr = err
+
+				time.Sleep(backoff)
+				backoff *= 2 // Exponential backoff
+				if backoff > 60*time.Second {
+					backoff = 60 * time.Second
+				}
 				continue
 			}
 			return "", fmt.Errorf("generate content: %w", err)
