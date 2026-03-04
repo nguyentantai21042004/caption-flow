@@ -28,14 +28,24 @@ func main() {
 	targetAll := flag.Bool("target-all", false, "Process all video files in input folder")
 	watchMode := flag.Bool("watch", false, "Run in watch mode (monitor input folder)")
 	summarizeMode := flag.Bool("summarize", false, "Summarize all SRT files in output folder via Gemini")
+	langMode := flag.String("v", "en", "Language profile to use (e.g. en, zh)")
+	configPath := flag.String("config", "", "Override path to configuration file directly")
 	flag.Parse()
 
 	ctx := context.Background()
 
+	// Determine configuration file
+	cfgPath := "config.yaml"
+	if *configPath != "" {
+		cfgPath = *configPath
+	} else if *langMode != "en" {
+		cfgPath = fmt.Sprintf("config-%s.yaml", *langMode)
+	}
+
 	// Load configuration
-	cfg, err := config.Load("config.yaml")
+	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to load config %s: %v\n", cfgPath, err)
 		os.Exit(1)
 	}
 
@@ -171,7 +181,7 @@ func runSummarize(ctx context.Context, cfg *config.Config, log logger.Logger) {
 	log.Info(ctx, "Source: %s/*.srt", cfg.Paths.Output)
 	log.Info(ctx, "========================================")
 
-	sum := summarizer.New(keys, cfg.Gemini.Model, log)
+	sum := summarizer.New(keys, cfg.Gemini.Model, cfg.Gemini.Prompt, log)
 
 	startTime := time.Now()
 	if err := sum.SummarizeAll(ctx, cfg.Paths.Output); err != nil {

@@ -12,21 +12,6 @@ import (
 	"google.golang.org/genai"
 )
 
-const summaryPrompt = `Bạn là một chuyên gia phân tích nội dung video đào tạo. Dựa trên phụ đề bên dưới, hãy viết một bản tóm tắt CHI TIẾT bằng TIẾNG VIỆT.
-
-Yêu cầu:
-- Bắt đầu bằng tiêu đề tổng quan (1 câu) mô tả chủ đề video
-- Liệt kê TẤT CẢ các bước / nội dung chính theo thứ tự xuất hiện
-- Giải thích chi tiết từng bước, bao gồm các lưu ý, mẹo, cảnh báo quan trọng
-- Nếu có thuật ngữ chuyên ngành, giữ nguyên thuật ngữ tiếng Anh trong ngoặc
-- Sử dụng format markdown: heading, bullet points, bold cho từ khóa quan trọng
-- Cuối cùng thêm phần "Lưu ý quan trọng" nếu có thông tin cần nhấn mạnh
-
-Phụ đề video:
----
-%s
----`
-
 // SummarizeAll discovers SRT files in outputDir (root), then for each:
 //   - writes transcript docx to outputDir/transcripts/
 //   - calls Gemini and writes summary docx to outputDir/summaries/
@@ -120,7 +105,7 @@ func (s *implSummarizer) SummarizeAll(ctx context.Context, outputDir string) err
 // callGemini sends the transcript to Gemini and returns the summary text.
 // Rotates API keys on 429 / quota errors.
 func (s *implSummarizer) callGemini(ctx context.Context, transcript string) (string, error) {
-	prompt := fmt.Sprintf(summaryPrompt, transcript)
+	prompt := fmt.Sprintf(s.prompt, transcript)
 
 	attempts := len(s.apiKeys) * 3 // Try each key multiple times with backoff
 	var lastErr error

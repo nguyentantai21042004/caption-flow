@@ -4,24 +4,28 @@
 build:
 	@echo "Building caption-flow..."
 	@go build -ldflags="-s -w" -o vid-pipeline cmd/pipeline/main.go
-	@echo "Build complete: ./vid-pipeline"
+# Determine config file based on LANG param (e.g. LANG=zh implies config-zh.yaml)
+CONFIG_FLAG=
+ifdef LANG
+	CONFIG_FLAG=-config "config-$(LANG).yaml"
+endif
 
 # Run the application
-run: build
+run:
 	@echo "Starting caption-flow..."
-	@./vid-pipeline
+	@go run cmd/pipeline/main.go $(CONFIG_FLAG)
 
 # Run pipeline: all files (default) or specific file(s)
-run-pipeline: build
+run-pipeline:
 ifdef FILE
-	@./vid-pipeline -target "$(FILE)"
+	@go run cmd/pipeline/main.go -target "$(FILE)" $(CONFIG_FLAG) $(ARGS)
 else
-	@./vid-pipeline -target-all
+	@go run cmd/pipeline/main.go -target-all $(CONFIG_FLAG) $(ARGS)
 endif
 
 # Generate transcript + summary DOCX from SRT files via Gemini
-summarize: build
-	@./vid-pipeline -summarize
+summarize:
+	@go run cmd/pipeline/main.go -summarize $(CONFIG_FLAG) $(ARGS)
 
 # Clean build artifacts
 clean:

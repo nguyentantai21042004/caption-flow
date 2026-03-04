@@ -10,6 +10,7 @@ vid-pipeline
 *.wav
 *.srt
 *.ass
+*.mov
 
 # Document files
 *.docx

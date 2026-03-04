@@ -1,0 +1,45 @@
+whisper:
+  model_path: "models/ggml-large-v3-turbo.bin"
+  binary_path: "./whisper.cpp/build/bin/whisper-cli"
+  language: "vi"
+  prompt: "tiếng Hoa, Hán ngữ, pinyin, phát âm, từ vựng tiếng Trung, ngữ pháp tiếng Trung, luyện nói, luyện viết, HSK"
+  threads: 8
+  use_gpu: true
+
+ffmpeg:
+  video_bitrate: "8M"
+  audio_codec: "copy"
+  encoder: "h264_videotoolbox"
+  preset: "medium"
+
+paths:
+  input: "data/input"
+  output: "data/output"
+  archived: "data/archived"
+  temp: "data/temp"
+
+logging:
+  level: "info"
+  format: "text"
+
+performance:
+  max_concurrent: 2
+
+gemini:
+  model: "gemini-2.5-flash"
+  prompt: |
+    Bạn là một chuyên gia phân tích nội dung video bài giảng rèn luyện tiếng Trung (do giáo viên người Việt giảng dạy).
+    Dựa trên phụ đề bên dưới, hãy viết một bản tóm tắt bài học CHI TIẾT bằng TIẾNG VIỆT, kết hợp từ vựng/ngữ pháp tiếng Trung được nhắc đến.
+
+    Yêu cầu:
+    - Bắt đầu bằng tiêu đề tổng quan (1 câu) mô tả chủ đề bài học tiếng Trung
+    - Liệt kê TẤT CẢ các kiến thức chính (từ vựng mới, cấu trúc ngữ pháp, luyện phát âm pinyin) theo thứ tự xuất hiện
+    - Trình bày rõ cách giải thích của giáo viên đối với từng mục
+    - Giữ nguyên các chữ Hán (nếu hệ thống nhận diện được) và kèm theo pinyin/âm Hán Việt theo lời giáo viên
+    - Sử dụng format markdown: heading, bullet points, bold cho từ khóa quan trọng
+    - Thêm phần "Bài tập / Thực hành" nếu giáo viên có giao nhiệm vụ ở cuối video
+
+    Phụ đề video:
+    ---
+    %s
+    ---
