@@ -1,25 +1,45 @@
 package summarizer
 
 import (
+	"net/http"
+	"time"
+
 	"github.com/nguyentantai21042004/caption-flow/internal/logger"
 )
 
 type implSummarizer struct {
-	apiKeys    []string
-	currentKey int
-	logger     logger.Logger
-	model      string
-	prompt     string
+	deepSeekKeys       []string
+	currentDeepSeekKey int
+	geminiKeys         []string
+	currentGeminiKey   int
+	logger             logger.Logger
+	deepSeekModel      string
+	deepSeekBaseURL    string
+	geminiModel        string
+	prompt             string
+	httpClient         *http.Client
 }
 
-func New(apiKeys []string, model, prompt string, log logger.Logger) Summarizer {
-	if model == "" {
-		model = "gemini-2.5-flash"
+func New(deepSeekKeys, geminiKeys []string, deepSeekModel, deepSeekBaseURL, geminiModel, prompt string, log logger.Logger) Summarizer {
+	if deepSeekModel == "" {
+		deepSeekModel = "deepseek-chat"
+	}
+	if deepSeekBaseURL == "" {
+		deepSeekBaseURL = "https://api.deepseek.com/v1"
+	}
+	if geminiModel == "" {
+		geminiModel = "gemini-2.5-flash"
 	}
 	return &implSummarizer{
-		apiKeys: apiKeys,
-		logger:  log,
-		model:   model,
-		prompt:  prompt,
+		deepSeekKeys:    deepSeekKeys,
+		geminiKeys:      geminiKeys,
+		logger:          log,
+		deepSeekModel:   deepSeekModel,
+		deepSeekBaseURL: deepSeekBaseURL,
+		geminiModel:     geminiModel,
+		prompt:          prompt,
+		httpClient: &http.Client{
+			Timeout: 60 * time.Second,
+		},
 	}
 }

@@ -1,8 +1,12 @@
 package summarizer
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,7 +18,7 @@ import (
 
 // SummarizeAll discovers SRT files in outputDir (root), then for each:
 //   - writes transcript docx to outputDir/transcripts/
-//   - calls Gemini and writes summary docx to outputDir/summaries/
+//   - calls DeepSeek (fallback Gemini) and writes summary docx to outputDir/summaries/
 //   - moves the processed SRT to outputDir/archived/
 func (s *implSummarizer) SummarizeAll(ctx context.Context, outputDir string) error {
 	srtFiles, err := s.discoverSRTFiles(outputDir)
@@ -66,8 +70,8 @@ func (s *implSummarizer) SummarizeAll(ctx context.Context, outputDir string) err
 		}
 		s.logger.Info(ctx, "  ✓ Transcript: %s", txDocx)
 
-		// 2) Summary DOCX — LLM-generated summary
-		summary, err := s.callGemini(ctx, srtText)
+		// 2) Summary DOCX — LLM-generated summary (DeepSeek primary, Gemini fallback)
+		summary, err := s.callSummary(ctx, srtText)
 		if err != nil {
 			s.logger.Error(ctx, "Failed to summarize %s: %v", videoName, err)
 			failCount++
@@ -93,7 +97,7 @@ func (s *implSummarizer) SummarizeAll(ctx context.Context, outputDir string) err
 
 		// Rate limiting delay between successfully processed files (except the last one)
 		if i < len(srtFiles)-1 {
-			s.logger.Info(ctx, "Sleeping 3s to respect Gemini API rate limits...")
+			s.logger.Info(ctx, "Sleeping 3s to respect LLM API rate limits...")
 			time.Sleep(3 * time.Second)
 		}
 	}
@@ -102,17 +106,148 @@ func (s *implSummarizer) SummarizeAll(ctx context.Context, outputDir string) err
 	return nil
 }
 
+func (s *implSummarizer) callSummary(ctx context.Context, transcript string) (string, error) {
+	if len(s.deepSeekKeys) == 0 {
+		return "", fmt.Errorf("no DEEPSEEK_API_KEYS configured")
+	}
+
+	deepSeekSummary, deepSeekErr := s.callDeepSeek(ctx, transcript)
+	if deepSeekErr == nil {
+		return deepSeekSummary, nil
+	}
+
+	if len(s.geminiKeys) == 0 {
+		return "", fmt.Errorf("deepseek failed and no GEMINI_API_KEYS configured: %w", deepSeekErr)
+	}
+
+	s.logger.Warn(ctx, "DeepSeek failed, falling back to Gemini: %v", deepSeekErr)
+	geminiSummary, geminiErr := s.callGemini(ctx, transcript)
+	if geminiErr != nil {
+		return "", fmt.Errorf("deepseek failed: %v; gemini fallback failed: %w", deepSeekErr, geminiErr)
+	}
+
+	return geminiSummary, nil
+}
+
+// callDeepSeek sends transcript to DeepSeek API and returns summary text.
+// Rotates API keys on quota/rate-limit related failures.
+func (s *implSummarizer) callDeepSeek(ctx context.Context, transcript string) (string, error) {
+	type deepSeekMessage struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	type deepSeekRequest struct {
+		Model       string            `json:"model"`
+		Messages    []deepSeekMessage `json:"messages"`
+		Temperature float64           `json:"temperature,omitempty"`
+	}
+	type deepSeekChoice struct {
+		Message deepSeekMessage `json:"message"`
+	}
+	type deepSeekResponse struct {
+		Choices []deepSeekChoice `json:"choices"`
+	}
+	type deepSeekErrorResponse struct {
+		Error struct {
+			Message string `json:"message"`
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+		} `json:"error"`
+	}
+
+	prompt := fmt.Sprintf(s.prompt, transcript)
+	requestBody := deepSeekRequest{
+		Model: s.deepSeekModel,
+		Messages: []deepSeekMessage{
+			{Role: "user", Content: prompt},
+		},
+		Temperature: 0.2,
+	}
+
+	requestJSON, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("marshal deepseek request: %w", err)
+	}
+
+	attempts := len(s.deepSeekKeys) * 3
+	var lastErr error
+	backoff := 3 * time.Second
+
+	for i := 0; i < attempts; i++ {
+		key := s.deepSeekKeys[s.currentDeepSeekKey]
+		url := strings.TrimRight(s.deepSeekBaseURL, "/") + "/chat/completions"
+
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(requestJSON))
+		if err != nil {
+			return "", fmt.Errorf("create deepseek request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Authorization", "Bearer "+key)
+
+		resp, err := s.httpClient.Do(httpReq)
+		if err != nil {
+			lastErr = fmt.Errorf("send deepseek request: %w", err)
+			s.rotateDeepSeekKey()
+			continue
+		}
+
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			lastErr = fmt.Errorf("read deepseek response: %w", readErr)
+			s.rotateDeepSeekKey()
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			var apiErr deepSeekErrorResponse
+			if err := json.Unmarshal(body, &apiErr); err != nil {
+				apiErr.Error.Message = string(body)
+			}
+
+			errMsg := strings.ToLower(apiErr.Error.Message)
+			if resp.StatusCode == http.StatusTooManyRequests || strings.Contains(errMsg, "quota") || strings.Contains(errMsg, "rate") {
+				s.logger.Warn(ctx, "DeepSeek key %d rate limited, rotating... (attempt %d/%d). Sleeping for %v", s.currentDeepSeekKey+1, i+1, attempts, backoff)
+				s.rotateDeepSeekKey()
+				lastErr = fmt.Errorf("deepseek API error %d: %s", resp.StatusCode, apiErr.Error.Message)
+
+				time.Sleep(backoff)
+				backoff *= 2
+				if backoff > 45*time.Second {
+					backoff = 45 * time.Second
+				}
+				continue
+			}
+
+			return "", fmt.Errorf("deepseek API error %d: %s", resp.StatusCode, apiErr.Error.Message)
+		}
+
+		var parsed deepSeekResponse
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return "", fmt.Errorf("parse deepseek response: %w", err)
+		}
+
+		if len(parsed.Choices) == 0 || strings.TrimSpace(parsed.Choices[0].Message.Content) == "" {
+			return "", fmt.Errorf("empty response from DeepSeek")
+		}
+
+		return parsed.Choices[0].Message.Content, nil
+	}
+
+	return "", fmt.Errorf("all DeepSeek API keys exhausted: %w", lastErr)
+}
+
 // callGemini sends the transcript to Gemini and returns the summary text.
 // Rotates API keys on 429 / quota errors.
 func (s *implSummarizer) callGemini(ctx context.Context, transcript string) (string, error) {
 	prompt := fmt.Sprintf(s.prompt, transcript)
 
-	attempts := len(s.apiKeys) * 3 // Try each key multiple times with backoff
+	attempts := len(s.geminiKeys) * 3 // Try each key multiple times with backoff
 	var lastErr error
 	backoff := 5 * time.Second
 
 	for i := 0; i < attempts; i++ {
-		key := s.apiKeys[s.currentKey]
+		key := s.geminiKeys[s.currentGeminiKey]
 
 		client, err := genai.NewClient(ctx, &genai.ClientConfig{
 			APIKey:  key,
@@ -120,16 +255,16 @@ func (s *implSummarizer) callGemini(ctx context.Context, transcript string) (str
 		})
 		if err != nil {
 			lastErr = fmt.Errorf("create client: %w", err)
-			s.rotateKey()
+			s.rotateGeminiKey()
 			continue
 		}
 
-		result, err := client.Models.GenerateContent(ctx, s.model, genai.Text(prompt), nil)
+		result, err := client.Models.GenerateContent(ctx, s.geminiModel, genai.Text(prompt), nil)
 		if err != nil {
 			errMsg := err.Error()
 			if strings.Contains(errMsg, "429") || strings.Contains(errMsg, "quota") || strings.Contains(errMsg, "RESOURCE_EXHAUSTED") || strings.Contains(errMsg, "retry in") {
-				s.logger.Warn(ctx, "Key %d rate limited, rotating... (attempt %d/%d). Sleeping for %v", s.currentKey+1, i+1, attempts, backoff)
-				s.rotateKey()
+				s.logger.Warn(ctx, "Gemini key %d rate limited, rotating... (attempt %d/%d). Sleeping for %v", s.currentGeminiKey+1, i+1, attempts, backoff)
+				s.rotateGeminiKey()
 				lastErr = err
 
 				time.Sleep(backoff)
@@ -158,8 +293,12 @@ func (s *implSummarizer) callGemini(ctx context.Context, transcript string) (str
 	return "", fmt.Errorf("all API keys exhausted: %w", lastErr)
 }
 
-func (s *implSummarizer) rotateKey() {
-	s.currentKey = (s.currentKey + 1) % len(s.apiKeys)
+func (s *implSummarizer) rotateGeminiKey() {
+	s.currentGeminiKey = (s.currentGeminiKey + 1) % len(s.geminiKeys)
+}
+
+func (s *implSummarizer) rotateDeepSeekKey() {
+	s.currentDeepSeekKey = (s.currentDeepSeekKey + 1) % len(s.deepSeekKeys)
 }
 
 func (s *implSummarizer) discoverSRTFiles(dir string) ([]string, error) {

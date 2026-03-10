@@ -8,6 +8,7 @@ type Config struct {
 	Paths       PathsConfig       `yaml:"paths"`
 	Logging     LoggingConfig     `yaml:"logging"`
 	Performance PerformanceConfig `yaml:"performance"`
+	DeepSeek    DeepSeekConfig    `yaml:"deepseek"`
 	Gemini      GeminiConfig      `yaml:"gemini"`
 }
 
@@ -41,6 +42,11 @@ type LoggingConfig struct {
 
 type PerformanceConfig struct {
 	MaxConcurrent int `yaml:"max_concurrent"`
+}
+
+type DeepSeekConfig struct {
+	Model   string `yaml:"model"`
+	BaseURL string `yaml:"base_url"`
 }
 
 type GeminiConfig struct {
@@ -82,6 +88,12 @@ func (c *Config) Validate() error {
 	}
 	if c.FFmpeg.Preset == "" {
 		c.FFmpeg.Preset = "medium"
+	}
+	if c.DeepSeek.Model == "" {
+		c.DeepSeek.Model = "deepseek-chat"
+	}
+	if c.DeepSeek.BaseURL == "" {
+		c.DeepSeek.BaseURL = "https://api.deepseek.com/v1"
 	}
 	if c.Gemini.Model == "" {
 		c.Gemini.Model = "gemini-2.5-flash"

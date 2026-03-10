@@ -27,7 +27,7 @@ func main() {
 	target := flag.String("target", "", "Target video file(s) to process (comma-separated or single file)")
 	targetAll := flag.Bool("target-all", false, "Process all video files in input folder")
 	watchMode := flag.Bool("watch", false, "Run in watch mode (monitor input folder)")
-	summarizeMode := flag.Bool("summarize", false, "Summarize all SRT files in output folder via Gemini")
+	summarizeMode := flag.Bool("summarize", false, "Summarize all SRT files in output folder via DeepSeek (fallback Gemini)")
 	langMode := flag.String("v", "en", "Language profile to use (e.g. en, zh)")
 	configPath := flag.String("config", "", "Override path to configuration file directly")
 	flag.Parse()
@@ -154,34 +154,53 @@ func runTargetMode(ctx context.Context, cfg *config.Config, proc processor.Proce
 	log.Info(ctx, "========================================")
 }
 
-// runSummarize reads SRT files from output and generates a markdown summary via Gemini
+// runSummarize reads SRT files from output and generates summary DOCX via DeepSeek (fallback Gemini).
 func runSummarize(ctx context.Context, cfg *config.Config, log logger.Logger) {
-	keysEnv := os.Getenv("GEMINI_API_KEYS")
-	if keysEnv == "" {
-		log.Error(ctx, "GEMINI_API_KEYS environment variable is not set")
-		log.Error(ctx, "Usage: export GEMINI_API_KEYS=\"key1,key2,key3\"")
+	deepSeekKeysEnv := os.Getenv("DEEPSEEK_API_KEYS")
+	if deepSeekKeysEnv == "" {
+		log.Error(ctx, "DEEPSEEK_API_KEYS environment variable is not set")
+		log.Error(ctx, "Usage: export DEEPSEEK_API_KEYS=\"key1,key2\"")
+		log.Error(ctx, "Optional fallback: export GEMINI_API_KEYS=\"gkey1,gkey2\"")
 		os.Exit(1)
 	}
 
-	var keys []string
-	for _, k := range strings.Split(keysEnv, ",") {
+	var deepSeekKeys []string
+	for _, k := range strings.Split(deepSeekKeysEnv, ",") {
 		k = strings.TrimSpace(k)
 		if k != "" {
-			keys = append(keys, k)
+			deepSeekKeys = append(deepSeekKeys, k)
 		}
 	}
 
-	if len(keys) == 0 {
-		log.Error(ctx, "No valid API keys found in GEMINI_API_KEYS")
+	if len(deepSeekKeys) == 0 {
+		log.Error(ctx, "No valid API keys found in DEEPSEEK_API_KEYS")
 		os.Exit(1)
 	}
 
+	geminiKeysEnv := os.Getenv("GEMINI_API_KEYS")
+	var geminiKeys []string
+	for _, k := range strings.Split(geminiKeysEnv, ",") {
+		k = strings.TrimSpace(k)
+		if k != "" {
+			geminiKeys = append(geminiKeys, k)
+		}
+	}
+
 	log.Info(ctx, "Running in SUMMARIZE mode")
-	log.Info(ctx, "API keys loaded: %d", len(keys))
+	log.Info(ctx, "DeepSeek API keys loaded: %d", len(deepSeekKeys))
+	log.Info(ctx, "Gemini fallback keys loaded: %d", len(geminiKeys))
 	log.Info(ctx, "Source: %s/*.srt", cfg.Paths.Output)
 	log.Info(ctx, "========================================")
 
-	sum := summarizer.New(keys, cfg.Gemini.Model, cfg.Gemini.Prompt, log)
+	sum := summarizer.New(
+		deepSeekKeys,
+		geminiKeys,
+		cfg.DeepSeek.Model,
+		cfg.DeepSeek.BaseURL,
+		cfg.Gemini.Model,
+		cfg.Gemini.Prompt,
+		log,
+	)
 
 	startTime := time.Now()
 	if err := sum.SummarizeAll(ctx, cfg.Paths.Output); err != nil {

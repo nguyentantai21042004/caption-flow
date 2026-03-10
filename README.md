@@ -1,6 +1,6 @@
 # Video Processing Pipeline
 
-Automated video processing pipeline that transcribes audio, burns subtitles into videos using Whisper and FFmpeg, and summarizes transcripts using Google Gemini. Optimized for Apple Silicon.
+Automated video processing pipeline that transcribes audio, burns subtitles into videos using Whisper and FFmpeg, and summarizes transcripts using DeepSeek (with Gemini fallback). Optimized for Apple Silicon.
 
 ## Features
 
@@ -8,10 +8,10 @@ Automated video processing pipeline that transcribes audio, burns subtitles into
 - High-accuracy speech-to-text transcription (Whisper)
 - Hardcoded subtitles with no font issues on macOS
 - Hardware-accelerated video encoding (Apple Silicon)
-- LLM-powered summarization of transcribed subtitles into Vietnamese DOCX documents (Gemini)
+- LLM-powered summarization of transcribed subtitles into Vietnamese DOCX documents (DeepSeek primary, Gemini fallback)
 - Automatic cleanup of temporary files
 - Structured logging with multiple levels
-- Handled API Rate Limiting for Gemini (Exponential Backoff)
+- Handled API rate limiting with retry/backoff and key rotation
 
 ## Prerequisites
 
@@ -25,7 +25,8 @@ Automated video processing pipeline that transcribes audio, burns subtitles into
 - Go 1.25 or later
 - FFmpeg with VideoToolbox support
 - whisper.cpp compiled with Metal acceleration
-- Google Gemini API Key(s) (for summarization feature)
+- DeepSeek API Key(s) (for summarization feature)
+- Optional Gemini API Key(s) for fallback
 
 ## Installation
 
@@ -96,6 +97,10 @@ logging:
   level: "info"
   format: "text"
 
+deepseek:
+  model: "deepseek-chat"
+  base_url: "https://api.deepseek.com/v1"
+
 gemini:
   model: "gemini-2.5-flash"
 
@@ -120,7 +125,10 @@ You have several modes of operation:
 ./vid-pipeline -watch
 
 # Generate transcript and summary DOCX from output SRT files
-export GEMINI_API_KEYS="your_key_here,another_key_here"
+# Required: DeepSeek keys
+export DEEPSEEK_API_KEYS="your_deepseek_key_1,your_deepseek_key_2"
+# Optional: Gemini fallback keys
+export GEMINI_API_KEYS="your_gemini_key_1,your_gemini_key_2"
 ./vid-pipeline -summarize
 ```
 
@@ -141,10 +149,11 @@ When running `./vid-pipeline -summarize`, the application will:
 
 1. Scan the output folder for `.srt` files.
 2. Read the SRT files and convert the raw transcript to a `.docx` document.
-3. Call the Gemini API to produce a detailed Vietnamese summary.
-4. Output the summary as a `.docx` document.
-5. Apply rate limiting and exponential backoff to handle free-tier Gemini API limitations.
-6. Archive processed SRT files.
+3. Call DeepSeek API to produce a detailed Vietnamese summary.
+4. If DeepSeek fails, fallback to Gemini automatically (if `GEMINI_API_KEYS` is configured).
+5. Output the summary as a `.docx` document.
+6. Apply rate limiting and exponential backoff to handle provider API limits.
+7. Archive processed SRT files.
 
 ### Supported Video Formats
 
@@ -165,7 +174,7 @@ caption-flow/
 │   ├── config/                  # Configuration management
 │   ├── logger/                  # Structured logging
 │   ├── processor/               # Video processing logic
-│   ├── summarizer/              # Gemini summarization logic
+│   ├── summarizer/              # DeepSeek->Gemini summarization logic
 │   └── watcher/                 # File system monitoring
 ├── pkg/
 │   └── executor/                # Command execution wrapper
@@ -256,9 +265,9 @@ Press `Ctrl+C` to stop gracefully.
 
 ### Summarization Issues
 
-**Problem**: Free-tier Gemini Rate Limit / 429 Errors
+**Problem**: DeepSeek/Gemini rate-limit or quota errors
 
-- **Solution**: The pipeline uses exponential backoff and rotating keys. Add more keys to `GEMINI_API_KEYS`, separated by commas, or upgrade to a paid GCP account.
+- **Solution**: The pipeline uses exponential backoff and rotating keys. Configure multiple keys in `DEEPSEEK_API_KEYS`, and optionally `GEMINI_API_KEYS` for fallback.
 
 ### Application Issues
 
