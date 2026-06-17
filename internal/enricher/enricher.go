@@ -95,24 +95,34 @@ func (e *implEnricher) captions(ctx context.Context, url, dir string) ([]Segment
 	args := append(e.cookieArgs(),
 		"--skip-download", "--write-subs", "--write-auto-subs",
 		"--sub-langs", e.cfg.SubLangs, "--sub-format", "vtt", "--convert-subs", "vtt",
-		// Dodge YouTube 429 on the timedtext endpoint.
-		"--retries", "5", "--retry-sleep", "3", "--sleep-requests", "1",
-		"--extractor-args", "youtube:player_client=android,web",
+		// Default player_client serves subtitles best; a forced android/tv client
+		// breaks the timedtext fetch. Sleep + retries to avoid tripping 429.
+		"--retries", "5", "--retry-sleep", "3", "--sleep-requests", "1", "--sleep-subtitles", "1",
 		"--no-warnings", "-o", filepath.Join(dir, "subs.%(ext)s"), url,
 	)
-	_, err := e.exec.Execute(ctx, "yt-dlp", args...)
-	if err != nil {
-		return nil, err
-	}
+	// yt-dlp can exit non-zero when ONE language 429s; that must not discard the
+	// languages that DID download. Decide by what actually landed on disk.
+	_, runErr := e.exec.Execute(ctx, "yt-dlp", args...)
 	matches, _ := filepath.Glob(filepath.Join(dir, "subs*.vtt"))
 	if len(matches) == 0 {
+		if runErr != nil {
+			return nil, runErr
+		}
 		return nil, fmt.Errorf("no subtitle file produced (video may have no captions)")
 	}
-	// Prefer an English track, else first available.
+	// Prefer the original Vietnamese track (most faithful to the lecturer's
+	// speech), then any vi, then en, else first available.
 	pick := matches[0]
-	for _, m := range matches {
-		if strings.Contains(m, ".en") {
-			pick = m
+	for _, pref := range []string{".vi-orig", ".vi", ".en"} {
+		found := false
+		for _, m := range matches {
+			if strings.Contains(m, pref) {
+				pick = m
+				found = true
+				break
+			}
+		}
+		if found {
 			break
 		}
 	}

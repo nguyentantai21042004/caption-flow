@@ -38,6 +38,6 @@ enrich:
   scene_threshold: 0.1          # lower = more keyframes (slides w/ fades)
   frame_width: 1280
   video_format: "best[height<=720]"
-  sub_langs: "en.*,en,vi"
+  sub_langs: "vi.*,vi"          # chỉ lấy vi (bài giảng VN) → khỏi đụng en → tránh 429
   keep_video: false
-  cookies_browser: ""           # set "safari"/"chrome" to bypass YouTube 429 on captions
+  cookies_browser: ""           # cookie-free; chỉ set "chrome"/"safari" nếu YouTube 429 dai (fallback)
