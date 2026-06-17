@@ -20,3 +20,9 @@ whisper.cpp/
 
 # Gemini output markdown
 data/output/summaries/*.md
+
+# Local secrets / API keys
+.env
+
+# Enrich bundles (frames + manifest, can be large)
+data/enrich/

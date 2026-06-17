@@ -10,6 +10,19 @@ type Config struct {
 	Performance PerformanceConfig `yaml:"performance"`
 	DeepSeek    DeepSeekConfig    `yaml:"deepseek"`
 	Gemini      GeminiConfig      `yaml:"gemini"`
+	Enrich      EnrichConfig      `yaml:"enrich"`
+}
+
+// EnrichConfig controls the YouTube "enrich" mode: caption + scene-keyframe
+// extraction into a Claude-ready bundle (no transcoding/burning).
+type EnrichConfig struct {
+	OutputDir      string  `yaml:"output_dir"`      // where bundles are written
+	SceneThreshold float64 `yaml:"scene_threshold"` // ffmpeg scene-change sensitivity (0-1)
+	FrameWidth     int     `yaml:"frame_width"`     // downscale keyframes to this width
+	VideoFormat    string  `yaml:"video_format"`        // yt-dlp -f selector
+	SubLangs       string  `yaml:"sub_langs"`           // yt-dlp --sub-langs
+	KeepVideo      bool    `yaml:"keep_video"`          // keep the downloaded video after framing
+	CookiesBrowser string  `yaml:"cookies_browser"`     // yt-dlp --cookies-from-browser (e.g. "safari","chrome") to dodge 429
 }
 
 type WhisperConfig struct {
@@ -97,6 +110,21 @@ func (c *Config) Validate() error {
 	}
 	if c.Gemini.Model == "" {
 		c.Gemini.Model = "gemini-2.5-flash"
+	}
+	if c.Enrich.OutputDir == "" {
+		c.Enrich.OutputDir = "data/enrich"
+	}
+	if c.Enrich.SceneThreshold == 0 {
+		c.Enrich.SceneThreshold = 0.1
+	}
+	if c.Enrich.FrameWidth == 0 {
+		c.Enrich.FrameWidth = 1280
+	}
+	if c.Enrich.VideoFormat == "" {
+		c.Enrich.VideoFormat = "best[height<=720]"
+	}
+	if c.Enrich.SubLangs == "" {
+		c.Enrich.SubLangs = "en.*,en,vi"
 	}
 	if c.Gemini.Prompt == "" {
 		c.Gemini.Prompt = `Bạn là một chuyên gia phân tích nội dung video đào tạo. Dựa trên phụ đề bên dưới, hãy viết một bản tóm tắt CHI TIẾT bằng TIẾNG VIỆT.

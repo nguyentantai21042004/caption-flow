@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nguyentantai21042004/caption-flow/internal/config"
+	"github.com/nguyentantai21042004/caption-flow/internal/enricher"
 	"github.com/nguyentantai21042004/caption-flow/internal/logger"
 	"github.com/nguyentantai21042004/caption-flow/internal/processor"
 	"github.com/nguyentantai21042004/caption-flow/internal/summarizer"
@@ -28,6 +29,7 @@ func main() {
 	targetAll := flag.Bool("target-all", false, "Process all video files in input folder")
 	watchMode := flag.Bool("watch", false, "Run in watch mode (monitor input folder)")
 	summarizeMode := flag.Bool("summarize", false, "Summarize all SRT files in output folder via DeepSeek (fallback Gemini)")
+	enrichURL := flag.String("enrich", "", "YouTube URL to enrich into a Claude-ready bundle (captions + scene keyframes)")
 	langMode := flag.String("v", "en", "Language profile to use (e.g. en, zh)")
 	configPath := flag.String("config", "", "Override path to configuration file directly")
 	flag.Parse()
@@ -70,6 +72,11 @@ func main() {
 	// Determine mode
 	if *summarizeMode {
 		runSummarize(ctx, cfg, log)
+		return
+	}
+
+	if *enrichURL != "" {
+		runEnrich(ctx, cfg, exec, log, *enrichURL)
 		return
 	}
 
@@ -215,6 +222,30 @@ func runSummarize(ctx context.Context, cfg *config.Config, log logger.Logger) {
 	log.Info(ctx, "  Summaries:   %s/summaries/", cfg.Paths.Output)
 	log.Info(ctx, "  Archived:    %s/archived/", cfg.Paths.Output)
 	log.Info(ctx, "========================================")
+}
+
+// runEnrich turns a YouTube URL into a Claude-ready bundle (captions + scene keyframes).
+func runEnrich(ctx context.Context, cfg *config.Config, exec executor.Executor, log logger.Logger, url string) {
+	log.Info(ctx, "Running in ENRICH mode")
+	log.Info(ctx, "URL: %s", url)
+	log.Info(ctx, "Output: %s", cfg.Enrich.OutputDir)
+	log.Info(ctx, "========================================")
+
+	en := enricher.New(cfg.Enrich, exec, log)
+	startTime := time.Now()
+	b, err := en.Enrich(ctx, url)
+	if err != nil {
+		log.Error(ctx, "Enrich failed: %v", err)
+		os.Exit(1)
+	}
+
+	log.Info(ctx, "========================================")
+	log.Info(ctx, "Bundle ready in %s", time.Since(startTime).Round(time.Millisecond))
+	log.Info(ctx, "  Title:     %s", b.Title)
+	log.Info(ctx, "  Dir:       %s", b.Dir)
+	log.Info(ctx, "  Segments:  %d", len(b.Segments))
+	log.Info(ctx, "  Frames:    %d", len(b.Frames))
+	log.Info(ctx, "  Manifest:  %s/manifest.json", b.Dir)
 }
 
 // discoverVideoFiles scans the input directory for all video files

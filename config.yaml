@@ -31,3 +31,13 @@ deepseek:
 
 gemini:
   model: "gemini-2.5-flash"
+
+# Enrich mode: YouTube URL -> captions + scene keyframes (Claude-ready bundle).
+enrich:
+  output_dir: "data/enrich"
+  scene_threshold: 0.1          # lower = more keyframes (slides w/ fades)
+  frame_width: 1280
+  video_format: "best[height<=720]"
+  sub_langs: "en.*,en,vi"
+  keep_video: false
+  cookies_browser: ""           # set "safari"/"chrome" to bypass YouTube 429 on captions
