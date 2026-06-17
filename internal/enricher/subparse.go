@@ -46,7 +46,47 @@ func parseSubtitles(content string) []Segment {
 		}
 		segs = append(segs, Segment{Index: len(segs), Start: start, End: end, Text: joined})
 	}
-	return segs
+	return collapseRolling(segs)
+}
+
+// collapseRolling merges YouTube auto-caption's rolling-window lines (each line
+// repeats the tail of the previous plus a few new words) back into clean,
+// reasonably-sized segments.
+func collapseRolling(segs []Segment) []Segment {
+	out := make([]Segment, 0, len(segs))
+	for _, s := range segs {
+		if n := len(out); n > 0 {
+			if merged, ok := mergeOverlap(out[n-1].Text, s.Text); ok && len(merged) <= 220 {
+				out[n-1].Text = merged
+				out[n-1].End = s.End
+				continue
+			}
+		}
+		out = append(out, s)
+	}
+	for i := range out {
+		out[i].Index = i
+	}
+	return out
+}
+
+// mergeOverlap returns a+b deduplicated when b is a continuation of a (b starts
+// with a, or a's word-suffix equals b's word-prefix). ok=false if unrelated.
+func mergeOverlap(a, b string) (string, bool) {
+	if a == b || strings.HasPrefix(b, a) {
+		return b, true
+	}
+	aw, bw := strings.Fields(a), strings.Fields(b)
+	max := len(aw)
+	if len(bw) < max {
+		max = len(bw)
+	}
+	for k := max; k >= 2; k-- {
+		if strings.Join(aw[len(aw)-k:], " ") == strings.Join(bw[:k], " ") {
+			return a + " " + strings.Join(bw[k:], " "), true
+		}
+	}
+	return "", false
 }
 
 // parseTS converts "HH:MM:SS.mmm" or "HH:MM:SS,mmm" to seconds.
